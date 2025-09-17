@@ -5,35 +5,156 @@
   <title>ローカルファイルポータル（ツリービュー）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --gap: .5rem; }
-    body { font-family: system-ui, -apple-system, Segoe UI, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; line-height: 1.6; margin: 1rem; }
-    h1 { margin: 0 0 .25rem; font-size: 1.25rem; }
-    .sub { margin: 0 0 1rem; color: #555; }
-    #panel { display: grid; gap: .75rem; margin: 0 0 1rem; }
-    #genRow { display: grid; gap: .5rem; }
-    #codeWrap { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .5rem; }
-    pre {
-      background: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 0;
+    :root { 
+      --gap: .5rem; 
+      --primary-bg: #2d2d2d;
+      --primary-text: #f8f8f2;
+      --muted-color: #666;
+      --border-color: #ccc;
     }
-    button, input[type="file"] { font: inherit; }
-    #copyBtn { cursor: pointer; padding: 4px 10px; }
-    #bar { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
-    #controls { display: flex; gap: var(--gap); }
-    #q { padding: .35rem .5rem; min-width: 16rem; }
-    ul { list-style: none; padding-left: .75rem; margin: 0; }
-    li { user-select: text; }
-    .folder { cursor: pointer; font-weight: 600; position: relative; padding-left: 1rem; line-height: 1.8; }
-    .folder::before { content: "▶"; position: absolute; left: 0; top: 0; width: 1rem; display: inline-block; }
-    .folder.open::before { content: "▽"; }
-    .nested { display: none; margin-left: .5rem; }
-    .nested.active { display: block; }
-    .file a { text-decoration: none; }
-    .file a:hover { text-decoration: underline; }
-    .muted { color: #666; font-size: .9em; }
-    .hidden { display: none !important; }
-    .indent{
-      white-space: pre;  /* 空白を実体として保持 */
-      font-size: 0;     /* 表示幅は実質ゼロに（ただしDOMのテキストは残る） */
+    
+    body { 
+      font-family: system-ui, -apple-system, Segoe UI, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; 
+      line-height: 1.6; 
+      margin: 1rem; 
+    }
+    
+    h1 { 
+      margin: 0 0 .25rem; 
+      font-size: 1.25rem; 
+    }
+    
+    .sub { 
+      margin: 0 0 1rem; 
+      color: #555; 
+    }
+    
+    #panel { 
+      display: grid; 
+      gap: .75rem; 
+      margin: 0 0 1rem; 
+    }
+    
+    #genRow { 
+      display: grid; 
+      gap: .5rem; 
+    }
+    
+    #codeWrap { 
+      display: grid; 
+      grid-template-columns: 1fr auto; 
+      align-items: center; 
+      gap: .5rem; 
+    }
+    
+    pre {
+      background: var(--primary-bg); 
+      color: var(--primary-text); 
+      padding: 10px; 
+      border-radius: 6px; 
+      overflow-x: auto; 
+      margin: 0;
+    }
+    
+    button, input[type="file"] { 
+      font: inherit; 
+    }
+    
+    #copyBtn { 
+      cursor: pointer; 
+      padding: 4px 10px; 
+    }
+    
+    #bar { 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: var(--gap); 
+      align-items: center; 
+    }
+    
+    #controls { 
+      display: flex; 
+      gap: var(--gap); 
+    }
+    
+    #q { 
+      padding: .35rem .5rem; 
+      min-width: 16rem; 
+    }
+    
+    ul { 
+      list-style: none; 
+      padding-left: .75rem; 
+      margin: 0; 
+    }
+    
+    li { 
+      user-select: text; 
+    }
+    
+    .folder { 
+      cursor: pointer; 
+      font-weight: 600; 
+      position: relative; 
+      padding-left: 1rem; 
+      line-height: 1.8; 
+    }
+    
+    .folder::before { 
+      content: "▶"; 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      width: 1rem; 
+      display: inline-block; 
+    }
+    
+    .folder.open::before { 
+      content: "▽"; 
+    }
+    
+    .nested { 
+      display: none; 
+      margin-left: .5rem; 
+    }
+    
+    .nested.active { 
+      display: block; 
+    }
+    
+    .file a { 
+      text-decoration: none; 
+    }
+    
+    .file a:hover { 
+      text-decoration: underline; 
+    }
+    
+    .muted { 
+      color: var(--muted-color); 
+      font-size: .9em; 
+    }
+    
+    .hidden { 
+      display: none !important; 
+    }
+    
+    .indent {
+      white-space: pre;
+      font-size: 0;
+    }
+    
+    #selControls {
+      display: flex;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    
+    #savedListBar {
+      margin-top: .5rem;
+      display: flex;
+      gap: .5rem;
+      align-items: center;
     }
   </style>
 </head>
@@ -62,13 +183,12 @@ Get-ChildItem -Recurse -File `
       <strong>2) filelist.txt を選択（1行1パス）</strong><br>
       <input type="file" id="picker" accept=".txt" />
     </div>
-    <!-- ▼ 追加：保存/復元UI -->
-    <div id="savedListBar" class="muted" style="margin-top:.5rem; display:flex; gap:.5rem; align-items:center;">
+    
+    <div id="savedListBar" class="muted">
       <button id="useSavedList" type="button" disabled>保存済みのリストを使う</button>
       <button id="clearSavedList" type="button" disabled>保存を削除</button>
       <span id="savedInfo"></span>
     </div>
-    <!-- ▲ 追加ここまで -->
 
     <div id="bar" class="hidden">
       <input id="q" type="search" placeholder="ファイル名を検索（部分一致）">
@@ -77,17 +197,16 @@ Get-ChildItem -Recurse -File `
         <button id="collapseAll" type="button">すべて折りたたみ</button>
         <button id="resetView" type="button">初期表示に戻す</button>
       </div>
-      <!-- ▼ 選択の保持系 ▼ -->
-      <div id="selControls" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      
+      <div id="selControls">
         <button id="saveSelection" type="button">選択を保存（local）</button>
         <button id="clearSelection" type="button">選択を全解除</button>
         <button id="exportSelection" type="button">選択をテキストへ書き出し</button>
         <label style="display:inline-flex;gap:.25rem;align-items:center;cursor:pointer;">
           <input id="importSelection" type="file" accept=".txt" style="display:none;">
-          <span style="border:1px solid #ccc;padding:.25rem .5rem;border-radius:4px;">選択を読み込み（.txt）</span>
+          <span style="border:1px solid var(--border-color);padding:.25rem .5rem;border-radius:4px;">選択を読み込み（.txt）</span>
         </label>
       </div>
-      <!-- ▲ 選択の保持系 ▲ -->
 
       <span id="stats" class="muted"></span>
     </div>
@@ -96,492 +215,630 @@ Get-ChildItem -Recurse -File `
   <div id="tree" aria-label="ファイルツリー" role="tree"></div>
 
   <script>
-    // --- ヘッダ操作（コピー） ---
-    const copyBtn = document.getElementById('copyBtn');
-    const codeBlock = document.getElementById('codeBlock').innerText.trim();
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(codeBlock);
-        copyBtn.textContent = "コピーしました！";
-        setTimeout(() => copyBtn.textContent = "コピー", 2000);
-      } catch (err) {
-        alert("コピーに失敗しました: " + err);
+    /**
+     * ローカルファイルポータル - メインクラス
+     * ファイル一覧をツリー表示し、検索・選択機能を提供する
+     */
+    class LocalFilePortal {
+      constructor() {
+        this.initConstants();
+        this.initElements();
+        this.initEventHandlers();
+        this.refreshSavedListUI();
       }
-    });
-    // ▼ ツールバーの要素参照
-    const saveSelectionBtn   = document.getElementById('saveSelection');
-    const clearSelectionBtn  = document.getElementById('clearSelection');
-    const exportSelectionBtn = document.getElementById('exportSelection');
-    const importSelectionInp = document.getElementById('importSelection');
 
-    // ▼ ハンドラ
-    saveSelectionBtn.onclick = () => {
-      const set = new Set(getSelectionArray());
-      saveCheckedSet(set);
-    };
-
-    clearSelectionBtn.onclick = () => clearAllSelection();
-
-    exportSelectionBtn.onclick = () => exportChecked();
-
-    importSelectionInp.onchange = (e) => {
-      const f = e.target.files?.[0];
-      if (f) importChecked(f).finally(() => { importSelectionInp.value = ''; });
-    };
-
-
-    // --- 要素参照 ---
-    const picker = document.getElementById('picker');
-    const bar = document.getElementById('bar');
-    const q = document.getElementById('q');
-    const expandAllBtn = document.getElementById('expandAll');
-    const collapseAllBtn = document.getElementById('collapseAll');
-    const resetViewBtn = document.getElementById('resetView');
-    const container = document.getElementById('tree');
-    const stats = document.getElementById('stats');
-
-    // --- 保存用キー
-    const SAVED_LIST_KEY = 'lfp_saved_filelist_v1';
-    const SAVED_META_KEY = 'lfp_saved_filelist_meta_v1';
-
-    // 保存
-    function saveListText(text) {
-      try {
-        localStorage.setItem(SAVED_LIST_KEY, text);
-        const meta = { savedAt: new Date().toISOString(), lines: text.split(/\r\n|\r|\n/).filter(Boolean).length };
-        localStorage.setItem(SAVED_META_KEY, JSON.stringify(meta));
-        refreshSavedListUI();
-      } catch (e) {
-        alert('保存に失敗しました（容量上限の可能性）');
+      /**
+       * 定数の初期化
+       */
+      initConstants() {
+        this.STORAGE_KEYS = {
+          SAVED_LIST: 'lfp_saved_filelist_v1',
+          SAVED_META: 'lfp_saved_filelist_meta_v1',
+          CHECKED_PATHS: 'lfp_checked_paths_v1'
+        };
       }
-    }
 
-    // 取得
-    function getSavedListText() {
-      return localStorage.getItem(SAVED_LIST_KEY) || '';
-    }
-
-    // 削除
-    function clearSavedList() {
-      localStorage.removeItem(SAVED_LIST_KEY);
-      localStorage.removeItem(SAVED_META_KEY);
-      refreshSavedListUI();
-    }
-
-    // UI更新
-    function refreshSavedListUI() {
-      const txt = getSavedListText();
-      const useBtn = document.getElementById('useSavedList');
-      const clrBtn = document.getElementById('clearSavedList');
-      const info   = document.getElementById('savedInfo');
-      const metaRaw = localStorage.getItem(SAVED_META_KEY);
-      const meta = metaRaw ? JSON.parse(metaRaw) : null;
-
-      const has = !!txt;
-      useBtn.disabled = !has;
-      clrBtn.disabled = !has;
-      info.textContent = has && meta ? `（保存済み: ${new Date(meta.savedAt).toLocaleString()} / ${meta.lines} 行）` : '';
-    }
-
-
-    // --- ツリーモデル判定 ---
-    function isFolderNode(node) {
-      if (!node || typeof node !== 'object') return false;
-      return Object.keys(node).some(k => k !== '__file' && k !== '__full');
-    }
-    function isFileNode(node) {
-      return node && node.__file === true;
-    }
-
-    // --- file:// URL 化（UNC/絶対/相対） ---
-    function toFileURL(full) {
-      if (/^\\\\/.test(full)) {
-        // UNC -> file:////server/share/path
-        return 'file:////' + full.replace(/^\\\\/, '').replace(/\\/g, '/');
+      /**
+       * DOM要素の参照を初期化
+       */
+      initElements() {
+        // ヘッダー要素
+        this.copyBtn = document.getElementById('copyBtn');
+        this.codeBlock = document.getElementById('codeBlock').innerText.trim();
+        
+        // ファイル選択
+        this.picker = document.getElementById('picker');
+        
+        // 保存機能
+        this.useSavedBtn = document.getElementById('useSavedList');
+        this.clearSavedBtn = document.getElementById('clearSavedList');
+        this.savedInfo = document.getElementById('savedInfo');
+        
+        // ツールバー
+        this.bar = document.getElementById('bar');
+        this.searchInput = document.getElementById('q');
+        this.expandAllBtn = document.getElementById('expandAll');
+        this.collapseAllBtn = document.getElementById('collapseAll');
+        this.resetViewBtn = document.getElementById('resetView');
+        
+        // 選択機能
+        this.saveSelectionBtn = document.getElementById('saveSelection');
+        this.clearSelectionBtn = document.getElementById('clearSelection');
+        this.exportSelectionBtn = document.getElementById('exportSelection');
+        this.importSelectionInp = document.getElementById('importSelection');
+        
+        // ツリー表示
+        this.container = document.getElementById('tree');
+        this.stats = document.getElementById('stats');
       }
-      if (/^[a-zA-Z]:[\\/]/.test(full)) {
-        // 絶対 C:\ -> file:///C:/...
-        return 'file:///' + full.replace(/\\/g, '/');
+
+      /**
+       * イベントハンドラーの初期化
+       */
+      initEventHandlers() {
+        // ヘッダー操作
+        this.copyBtn.addEventListener('click', () => this.copyCode());
+        
+        // ファイル選択
+        this.picker.addEventListener('change', (e) => this.handleFileSelect(e));
+        
+        // 保存機能
+        this.useSavedBtn.onclick = () => this.useSavedList();
+        this.clearSavedBtn.onclick = () => this.clearSavedList();
+        
+        // ツリー操作
+        this.expandAllBtn.onclick = () => this.expandCollapseAll(true);
+        this.collapseAllBtn.onclick = () => this.expandCollapseAll(false);
+        this.resetViewBtn.onclick = () => this.resetInitialView();
+        this.searchInput.addEventListener('input', () => this.applyFilter(this.searchInput.value.trim()));
+        
+        // 選択機能
+        this.saveSelectionBtn.onclick = () => this.saveSelection();
+        this.clearSelectionBtn.onclick = () => this.clearAllSelection();
+        this.exportSelectionBtn.onclick = () => this.exportSelection();
+        this.importSelectionInp.onchange = (e) => this.importSelection(e);
       }
-      // 相対はそのまま
-      return full;
-    }
 
-    // --- ツリー構築 ---
-    function buildTree(items) {
-      const root = {};
-      let count = 0;
-
-      for (const raw of items) {
-        // raw は { rel: 'kibunyaProject/…', full: 'D:\...\kibunyaProject\…' }
-        let rel, full;
-        if (typeof raw === 'string') {
-          // 後方互換（文字列が来た場合）
-          full = raw.replace(/^\uFEFF/, '').trim();
-          rel  = full.replace(/\\/g, '/');     // / 区切りへ
-        } else {
-          full = String(raw.full || '').replace(/^\uFEFF/, '').trim();
-          rel  = String(raw.rel  || '').trim(); // すでに / 区切り
+      /**
+       * PowerShellコードをクリップボードにコピー
+       */
+      async copyCode() {
+        try {
+          await navigator.clipboard.writeText(this.codeBlock);
+          this.copyBtn.textContent = "コピーしました！";
+          setTimeout(() => this.copyBtn.textContent = "コピー", 2000);
+        } catch (err) {
+          alert("コピーに失敗しました: " + err);
         }
-        if (!full || !rel) continue;
+      }
 
-        const parts = rel.split('/').filter(Boolean); // ← / 固定で分割
-        let cur = root;
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
-          const isLast = i === parts.length - 1;
-          cur[part] = cur[part] || {};
-          cur = cur[part];
-          if (isLast) {
-            cur.__file = true;
-            cur.__full = full; // リンク用に元の絶対パスを保持
-            count++;
+      /**
+       * ファイル選択時の処理
+       */
+      async handleFileSelect(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        
+        try {
+          const text = await file.text();
+          this.saveListText(text);
+          this.renderFromText(text);
+        } catch (error) {
+          alert("ファイル読み込みエラー: " + error.message);
+        }
+      }
+
+      /**
+       * リストテキストを保存
+       */
+      saveListText(text) {
+        try {
+          localStorage.setItem(this.STORAGE_KEYS.SAVED_LIST, text);
+          const meta = { 
+            savedAt: new Date().toISOString(), 
+            lines: text.split(/\r\n|\r|\n/).filter(Boolean).length 
+          };
+          localStorage.setItem(this.STORAGE_KEYS.SAVED_META, JSON.stringify(meta));
+          this.refreshSavedListUI();
+        } catch (e) {
+          alert('保存に失敗しました（容量上限の可能性）');
+        }
+      }
+
+      /**
+       * 保存済みリストを取得
+       */
+      getSavedListText() {
+        return localStorage.getItem(this.STORAGE_KEYS.SAVED_LIST) || '';
+      }
+
+      /**
+       * 保存済みリストを使用
+       */
+      useSavedList() {
+        const text = this.getSavedListText();
+        if (!text) return;
+        this.renderFromText(text);
+      }
+
+      /**
+       * 保存済みリストを削除
+       */
+      clearSavedList() {
+        if (!confirm('保存済みのリストを削除しますか？')) return;
+        
+        localStorage.removeItem(this.STORAGE_KEYS.SAVED_LIST);
+        localStorage.removeItem(this.STORAGE_KEYS.SAVED_META);
+        this.refreshSavedListUI();
+      }
+
+      /**
+       * 保存済みリストのUI更新
+       */
+      refreshSavedListUI() {
+        const text = this.getSavedListText();
+        const metaRaw = localStorage.getItem(this.STORAGE_KEYS.SAVED_META);
+        const meta = metaRaw ? JSON.parse(metaRaw) : null;
+        
+        const hasData = !!text;
+        this.useSavedBtn.disabled = !hasData;
+        this.clearSavedBtn.disabled = !hasData;
+        
+        this.savedInfo.textContent = hasData && meta 
+          ? `（保存済み: ${new Date(meta.savedAt).toLocaleString()} / ${meta.lines} 行）` 
+          : '';
+      }
+
+      /**
+       * テキストからツリーを描画
+       */
+      renderFromText(text) {
+        const origLines = text.split(/\r\n|\r|\n/)
+          .map(line => line.trim())
+          .filter(Boolean);
+        
+        if (origLines.length === 0) return;
+
+        const treeData = this.buildTreeFromLines(origLines);
+        this.renderTree(treeData);
+        
+        this.bar.classList.remove('hidden');
+        this.resetInitialView();
+        this.updateStats();
+      }
+
+      /**
+       * 行データからツリー構造を構築
+       */
+      buildTreeFromLines(lines) {
+        const normLines = lines.map(line => line.replace(/\\/g, '/'));
+        const commonRoot = this.getCommonPrefix(normLines);
+
+        const items = normLines.map((norm, i) => {
+          const rel = norm.startsWith(commonRoot)
+            ? norm.slice(commonRoot.length).replace(/^\/+/, '')
+            : norm;
+          return { rel, full: lines[i] };
+        });
+
+        const { root, count } = this.buildTree(items);
+        
+        return { root, count, commonRoot };
+      }
+
+      /**
+       * 共通プレフィックスを取得
+       */
+      getCommonPrefix(paths) {
+        if (paths.length === 0) return '';
+        
+        const splitPaths = paths.map(p => p.split(/[\\/]/));
+        const minLen = Math.min(...splitPaths.map(parts => parts.length));
+        const prefixParts = [];
+        
+        for (let i = 0; i < minLen; i++) {
+          const part = splitPaths[0][i];
+          if (splitPaths.every(parts => parts[i] === part)) {
+            prefixParts.push(part);
+          } else {
+            break;
+          }
+        }
+        
+        return prefixParts.join('/');
+      }
+
+      /**
+       * ツリー構造を構築
+       */
+      buildTree(items) {
+        const root = {};
+        let count = 0;
+
+        for (const item of items) {
+          const { rel, full } = item;
+          if (!full || !rel) continue;
+
+          const parts = rel.split('/').filter(Boolean);
+          let current = root;
+          
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const isLast = i === parts.length - 1;
+            
+            current[part] = current[part] || {};
+            current = current[part];
+            
+            if (isLast) {
+              current.__file = true;
+              current.__full = full;
+              count++;
+            }
+          }
+        }
+        
+        return { root, count };
+      }
+
+      /**
+       * ツリーをDOMに描画
+       */
+      renderTree({ root, count, commonRoot }) {
+        this.container.innerHTML = '';
+        
+        // 共通ルート情報を表示
+        if (commonRoot) {
+          const notice = document.createElement('div');
+          notice.className = "muted";
+          notice.textContent = `ここから下を表示しています: ${commonRoot}`;
+          this.container.appendChild(notice);
+        }
+        
+        const ul = document.createElement('ul');
+        ul.setAttribute('role', 'tree');
+        this.buildChildren(ul, root);
+        this.container.appendChild(ul);
+        
+        this.stats.textContent = `${count.toLocaleString()} files`;
+      }
+
+      /**
+       * 子要素を構築
+       */
+      buildChildren(ul, node, depth = 0) {
+        const keys = Object.keys(node)
+          .filter(key => key !== '__file' && key !== '__full')
+          .sort((a, b) => {
+            const aIsFolder = this.isFolderNode(node[a]) && !this.isFileNode(node[a]);
+            const bIsFolder = this.isFolderNode(node[b]) && !this.isFileNode(node[b]);
+            if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+            return a.localeCompare(b, 'ja');
+          });
+
+        for (const name of keys) {
+          const childNode = node[name];
+          const isFolder = this.isFolderNode(childNode) && !this.isFileNode(childNode);
+          
+          const li = isFolder 
+            ? this.createFolderElement(name, childNode) 
+            : this.createFileElement(name, childNode);
+
+          // インデント追加
+          this.addIndent(li, depth);
+          ul.appendChild(li);
+
+          if (isFolder) {
+            const nested = li.querySelector(':scope > .nested');
+            this.buildChildren(nested, childNode, depth + 1);
           }
         }
       }
-      return { root, count };
-    }
 
+      /**
+       * フォルダ要素を作成
+       */
+      createFolderElement(name, node) {
+        const li = document.createElement('li');
+        li.className = 'folder';
+        li.setAttribute('role', 'treeitem');
+        li.setAttribute('aria-expanded', 'false');
+        li.textContent = name;
 
-    // --- DOMパーツ ---
-    function createFileLi(name, node) {
-      const li = document.createElement('li');
-      li.className = 'file';
-      li.setAttribute('role', 'treeitem');
-      li.setAttribute('aria-selected', 'false');
+        const nested = document.createElement('ul');
+        nested.className = 'nested';
+        nested.setAttribute('role', 'group');
+        li.appendChild(nested);
 
-      const a = document.createElement('a');
-      a.textContent = name;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.href = encodeURI(toFileURL(node.__full || name));
+        let built = false;
+        li.addEventListener('click', (event) => {
+          if (event.target.closest('input, label, button, a')) return;
+          
+          // テキスト選択中は開閉しない
+          const selection = window.getSelection && window.getSelection();
+          if (selection && !selection.isCollapsed) return;
 
-      // クリックが伝播して親の折りたたみが動くのを防止 
-      a.addEventListener('click', (e) => e.stopPropagation());
-
-      li.appendChild(a);
-      attachCheckbox(li, node.__full || name);
-      return li;
-    }
-
-    function createFolderLi(name, node) {
-      const li = document.createElement('li');
-      li.className = 'folder';
-      li.setAttribute('role', 'treeitem');
-      li.setAttribute('aria-expanded', 'false');
-      li.textContent = name;
-
-      const child = document.createElement('ul');
-      child.className = 'nested';
-      child.setAttribute('role', 'group');
-      li.appendChild(child);
-
-      let built = false;
-      li.addEventListener('click', (ev) => {
-
-        // input/label/button/a をクリックしたときは無視
-        if (ev.target.closest('input, label, button, a')) return;
-
-        // ★ 追加：テキスト選択がある場合は開閉しない
-        const sel = window.getSelection && window.getSelection();
-        if (sel && !sel.isCollapsed) return;
-
-        ev.stopPropagation();
-        if (!built) {
-          buildChildren(child, node);
-          built = true;
-        }
-        const open = !li.classList.contains('open');
-        li.classList.toggle('open', open);
-        child.classList.toggle('active', open);
-        li.setAttribute('aria-expanded', String(open));
-      });
-
-      return li;
-    }
-
-    function buildChildren(ul, node, depth = 0) {
-      const keys = Object.keys(node)
-        .filter(k => k !== '__file' && k !== '__full')
-        .sort((a, b) => {
-          const aIsFolder = isFolderNode(node[a]) && !isFileNode(node[a]);
-          const bIsFolder = isFolderNode(node[b]) && !isFileNode(node[b]);
-          if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
-          return a.localeCompare(b, 'ja');
+          event.stopPropagation();
+          
+          if (!built) {
+            this.buildChildren(nested, node);
+            built = true;
+          }
+          
+          const isOpen = !li.classList.contains('open');
+          li.classList.toggle('open', isOpen);
+          nested.classList.toggle('active', isOpen);
+          li.setAttribute('aria-expanded', String(isOpen));
         });
 
-      for (const name of keys) {
-        const childNode = node[name];
-        const hasFolderChildren = isFolderNode(childNode) && !isFileNode(childNode);
+        return li;
+      }
 
-        const li = hasFolderChildren ? createFolderLi(name, childNode) : createFileLi(name, childNode);
+      /**
+       * ファイル要素を作成
+       */
+      createFileElement(name, node) {
+        const li = document.createElement('li');
+        li.className = 'file';
+        li.setAttribute('role', 'treeitem');
+        li.setAttribute('aria-selected', 'false');
 
-        // ★ テキストノードではなく span.indent を入れる
+        const link = document.createElement('a');
+        link.textContent = name;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.href = encodeURI(this.toFileURL(node.__full || name));
+        
+        link.addEventListener('click', (e) => e.stopPropagation());
+        
+        li.appendChild(link);
+        this.attachCheckbox(li, node.__full || name);
+        
+        return li;
+      }
+
+      /**
+       * インデントを追加
+       */
+      addIndent(element, depth) {
         const indentSpan = document.createElement('span');
         indentSpan.className = 'indent';
-        indentSpan.textContent = '  '.repeat(depth); // 2スペース×深さ
-        li.insertBefore(indentSpan, li.firstChild);
-
-        ul.appendChild(li);
-
-        if (hasFolderChildren) {
-          const nested = li.querySelector(':scope > .nested');
-          buildChildren(nested, childNode, depth + 1);
-        }
+        indentSpan.textContent = '  '.repeat(depth);
+        element.insertBefore(indentSpan, element.firstChild);
       }
-    }
 
-    function renderRoot(treeObj) {
-      container.innerHTML = '';
-      const ul = document.createElement('ul');
-      ul.setAttribute('role', 'tree');
-      buildChildren(ul, treeObj);
-      container.appendChild(ul);
-    }
-
-    // --- 展開/折りたたみ ---
-    function expandCollapseAll(expand = true, depth = Infinity) {
-      const rootUL = container.querySelector(':scope > ul'); // ★ 追加：正しい起点
-      if (!rootUL) return;
-
-      const walk = (el, d) => {
-        if (!el || d > depth) return;
-        el.querySelectorAll(':scope > li.folder').forEach(li => {
-          const nested = li.querySelector(':scope > .nested');
-          // 子未構築なら一度クリックして構築
-          if (nested && nested.children.length === 0) {
-            li.dispatchEvent(new Event('click', { bubbles: false }));
-            if (!expand) {
-              li.classList.remove('open');
-              nested.classList.remove('active');
-              li.setAttribute('aria-expanded', 'false');
-            }
-          } else {
-            li.classList.toggle('open', expand);
-            nested && nested.classList.toggle('active', expand);
-            li.setAttribute('aria-expanded', String(expand));
-          }
-          if (nested) walk(nested, d + 1);
+      /**
+       * チェックボックスを追加
+       */
+      attachCheckbox(li, fullPath) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.title = '重要（選択リスト）';
+        checkbox.dataset.full = fullPath;
+        
+        checkbox.addEventListener('click', (e) => e.stopPropagation());
+        
+        // 保存済み選択状態を反映
+        const savedSelection = this.getCheckedSet();
+        checkbox.checked = savedSelection.has(fullPath);
+        
+        checkbox.addEventListener('change', () => {
+          const selection = this.getCheckedSet();
+          checkbox.checked ? selection.add(fullPath) : selection.delete(fullPath);
+          this.saveCheckedSet(selection);
+          this.updateStats();
         });
-      };
-
-      walk(rootUL, 1); // ★ ここも rootUL を渡す
-    }
-
-
-    function resetInitialView() {
-      // 深さ2まで展開（第一階層＋その子）
-      expandCollapseAll(true, 2);
-      q.value = '';
-      // 全表示
-      container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
-      updateStats();
-    }
-
-    // --- 検索（部分一致・簡易） ---
-    function anyVisible(el) {
-      return [...el.children].some(ch => ch.classList && !ch.classList.contains('hidden'));
-    }
-
-    function applyFilter(term) {
-      const hasTerm = term.length > 0;
-      if (hasTerm) {
-        // 全展開で見通し良く
-        expandCollapseAll(true, Infinity);
-      } else {
-        // いったん全表示
-        container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
-        // 初期の深さに戻す
-        resetInitialView();
-        return;
+        
+        li.prepend(checkbox);
       }
 
-      term = term.toLowerCase();
+      /**
+       * ファイルURLに変換
+       */
+      toFileURL(path) {
+        if (/^\\\\/.test(path)) {
+          // UNC パス
+          return 'file:////' + path.replace(/^\\\\/, '').replace(/\\/g, '/');
+        }
+        if (/^[a-zA-Z]:[\\/]/.test(path)) {
+          // 絶対パス
+          return 'file:///' + path.replace(/\\/g, '/');
+        }
+        // 相対パス
+        return path;
+      }
 
-      // ファイルの表示/非表示
-      container.querySelectorAll('li.file').forEach(li => {
-        const name = li.textContent.toLowerCase();
-        li.classList.toggle('hidden', !name.includes(term));
-      });
+      /**
+       * ノードタイプ判定
+       */
+      isFolderNode(node) {
+        if (!node || typeof node !== 'object') return false;
+        return Object.keys(node).some(key => key !== '__file' && key !== '__full');
+      }
 
-      // フォルダは、配下に可視アイテムがあるかで出し分け
-      // 深い階層から上へ順に処理
-      const folders = Array.from(container.querySelectorAll('li.folder')).reverse();
-      folders.forEach(f => {
-        const nested = f.querySelector(':scope > .nested');
-        if (!nested) return;
-        const visible = anyVisible(nested);
-        f.classList.toggle('hidden', !visible);
-      });
+      isFileNode(node) {
+        return node && node.__file === true;
+      }
 
-      updateStats();
-    }
+      /**
+       * 全展開・全折りたたみ
+       */
+      expandCollapseAll(expand = true, maxDepth = Infinity) {
+        const rootUL = this.container.querySelector(':scope > ul');
+        if (!rootUL) return;
 
-    // --- 共通プレフィックスを探す ---
-    function getCommonPrefix(paths) {
-      if (paths.length === 0) return '';
-      const splitPaths = paths.map(p => p.split(/[\\/]/));
-      const minLen = Math.min(...splitPaths.map(parts => parts.length));
-      let prefixParts = [];
-      for (let i = 0; i < minLen; i++) {
-        const part = splitPaths[0][i];
-        if (splitPaths.every(parts => parts[i] === part)) {
-          prefixParts.push(part);
+        const processElement = (element, currentDepth) => {
+          if (!element || currentDepth > maxDepth) return;
+          
+          element.querySelectorAll(':scope > li.folder').forEach(folder => {
+            const nested = folder.querySelector(':scope > .nested');
+            
+            // 未構築の場合は一度クリックして構築
+            if (nested && nested.children.length === 0) {
+              folder.dispatchEvent(new Event('click', { bubbles: false }));
+              if (!expand) {
+                folder.classList.remove('open');
+                nested.classList.remove('active');
+                folder.setAttribute('aria-expanded', 'false');
+              }
+            } else {
+              folder.classList.toggle('open', expand);
+              nested && nested.classList.toggle('active', expand);
+              folder.setAttribute('aria-expanded', String(expand));
+            }
+            
+            if (nested) {
+              processElement(nested, currentDepth + 1);
+            }
+          });
+        };
+
+        processElement(rootUL, 1);
+      }
+
+      /**
+       * 初期表示に戻す
+       */
+      resetInitialView() {
+        this.expandCollapseAll(true, 2); // 深さ2まで展開
+        this.searchInput.value = '';
+        this.container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
+        this.updateStats();
+      }
+
+      /**
+       * フィルターを適用
+       */
+      applyFilter(term) {
+        const hasTerm = term.length > 0;
+        
+        if (hasTerm) {
+          this.expandCollapseAll(true); // 全展開
+          this.filterByTerm(term.toLowerCase());
         } else {
-          break;
+          this.container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
+          this.resetInitialView();
+          return;
+        }
+        
+        this.updateStats();
+      }
+
+      /**
+       * 検索語でフィルタリング
+       */
+      filterByTerm(term) {
+        // ファイルのフィルタリング
+        this.container.querySelectorAll('li.file').forEach(li => {
+          const name = li.textContent.toLowerCase();
+          li.classList.toggle('hidden', !name.includes(term));
+        });
+
+        // フォルダのフィルタリング（子要素に表示可能なものがあるか）
+        const folders = Array.from(this.container.querySelectorAll('li.folder')).reverse();
+        folders.forEach(folder => {
+          const nested = folder.querySelector(':scope > .nested');
+          if (!nested) return;
+          
+          const hasVisibleChildren = this.hasVisibleChildren(nested);
+          folder.classList.toggle('hidden', !hasVisibleChildren);
+        });
+      }
+
+      /**
+       * 表示可能な子要素があるかチェック
+       */
+      hasVisibleChildren(element) {
+        return [...element.children].some(child => 
+          child.classList && !child.classList.contains('hidden')
+        );
+      }
+
+      /**
+       * 統計情報を更新
+       */
+      updateStats() {
+        const total = this.container.querySelectorAll('li.file').length;
+        const visible = this.container.querySelectorAll('li.file:not(.hidden)').length;
+        const checked = this.container.querySelectorAll('li.file input[type=checkbox]:checked').length;
+        
+        this.stats.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} files  ·  selected ${checked}`;
+      }
+
+      /**
+       * 選択機能
+       */
+      getCheckedSet() {
+        const raw = localStorage.getItem(this.STORAGE_KEYS.CHECKED_PATHS);
+        return new Set(raw ? JSON.parse(raw) : []);
+      }
+
+      saveCheckedSet(set) {
+        localStorage.setItem(this.STORAGE_KEYS.CHECKED_PATHS, JSON.stringify([...set]));
+      }
+
+      getSelectionArray() {
+        return [...this.container.querySelectorAll('li.file input[type=checkbox]:checked')]
+          .map(checkbox => checkbox.dataset.full);
+      }
+
+      applySelectionFromSet(selectionSet) {
+        this.container.querySelectorAll('li.file input[type=checkbox]').forEach(checkbox => {
+          checkbox.checked = selectionSet.has(checkbox.dataset.full);
+        });
+      }
+
+      saveSelection() {
+        const selection = new Set(this.getSelectionArray());
+        this.saveCheckedSet(selection);
+      }
+
+      clearAllSelection() {
+        const emptySet = new Set();
+        this.applySelectionFromSet(emptySet);
+        this.saveCheckedSet(emptySet);
+        this.updateStats();
+      }
+
+      exportSelection(filename = 'checked-list.txt') {
+        const lines = this.getSelectionArray().join('\n');
+        const blob = new Blob([lines], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = Object.assign(document.createElement('a'), { 
+          href: url, 
+          download: filename 
+        });
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      async importSelection(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        
+        try {
+          const text = await file.text();
+          const selectionSet = new Set(
+            text.split(/\r?\n/)
+              .map(line => line.trim())
+              .filter(Boolean)
+          );
+          
+          this.applySelectionFromSet(selectionSet);
+          this.saveCheckedSet(selectionSet);
+          this.updateStats();
+        } catch (error) {
+          alert('選択の読み込みに失敗しました: ' + error.message);
+        } finally {
+          this.importSelectionInp.value = '';
         }
       }
-      return prefixParts.join('/');
-    }
-    // ★ filelistテキスト → ツリー描画（共通ルート省略＆明示まで）
-    function renderFromText(text) {
-      const origLines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
-      if (origLines.length === 0) return;
-
-      const normLines = origLines.map(l => l.replace(/\\/g, '/'));
-      const commonRoot = getCommonPrefix(normLines);
-
-      const items = normLines.map((norm, i) => {
-        const rel = norm.startsWith(commonRoot)
-          ? norm.slice(commonRoot.length).replace(/^\/+/, '')
-          : norm;
-        return { rel, full: origLines[i] };
-      });
-
-      const { root, count } = buildTree(items);
-      renderRoot(root);
-
-      // 明示
-      const rootNotice = document.createElement('div');
-      rootNotice.className = "muted";
-      rootNotice.textContent = `ここから下を表示しています: ${commonRoot}`;
-      container.prepend(rootNotice);
-
-      bar.classList.remove('hidden');
-      resetInitialView();
-      stats.textContent = `${count.toLocaleString()} files`;
     }
 
-
-    // --- 件数表示 ---
-    function updateStats() {
-      const total   = container.querySelectorAll('li.file').length;
-      const visible = container.querySelectorAll('li.file:not(.hidden)').length;
-      const checked = container.querySelectorAll('li.file input[type=checkbox]:checked').length;
-      stats.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} files  ·  selected ${checked}`;
-    }
-
-
-    // --- イベント ---
-    picker.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-
-      // 自動保存
-      saveListText(text);
-
-      // 描画
-      renderFromText(text);
+    // アプリケーション初期化
+    document.addEventListener('DOMContentLoaded', () => {
+      new LocalFilePortal();
     });
-
-
-
-    expandAllBtn.onclick = () => expandCollapseAll(true, Infinity);
-    collapseAllBtn.onclick = () => expandCollapseAll(false, Infinity);
-    resetViewBtn.onclick = () => resetInitialView();
-
-    q.addEventListener('input', () => applyFilter(q.value.trim()));
-
-    /* ====== 選択（チェック）を保存・読み書きする仕組み ====== */
-    const STORAGE_KEY = 'lfp_checked_paths_v1';
-
-    function getCheckedSet() {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return new Set(raw ? JSON.parse(raw) : []);
-    }
-    function saveCheckedSet(set) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
-    }
-    function getSelectionArray() {
-      return [...container.querySelectorAll('li.file input[type=checkbox]:checked')]
-            .map(cb => cb.dataset.full);
-    }
-    function applySelectionFromSet(selSet) {
-      container.querySelectorAll('li.file input[type=checkbox]').forEach(cb => {
-        cb.checked = selSet.has(cb.dataset.full);
-      });
-    }
-
-    const useSavedBtn = document.getElementById('useSavedList');
-    const clearSavedBtn = document.getElementById('clearSavedList');
-
-    useSavedBtn.onclick = () => {
-      const txt = getSavedListText();
-      if (!txt) return;
-      renderFromText(txt);
-    };
-
-    clearSavedBtn.onclick = () => {
-      if (confirm('保存済みのリストを削除しますか？')) {
-        clearSavedList();
-      }
-    };
-
-    /* ファイル行にチェックボックスを付与 */
-    function attachCheckbox(li, fullPath) {
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.title = '重要（選択リスト）';
-      cb.dataset.full = fullPath;
-
-      // クリックが伝播してリンクが開くのを防止
-      cb.addEventListener('click', (e) => e.stopPropagation());
-
-
-      // localStorageの選択状態を反映
-      const sel = getCheckedSet();
-      cb.checked = sel.has(fullPath);
-
-      cb.addEventListener('change', () => {
-        const s = getCheckedSet();
-        cb.checked ? s.add(fullPath) : s.delete(fullPath);
-        saveCheckedSet(s);
-        updateStats();
-      });
-
-      // 見た目：行頭に配置
-      li.prepend(cb);
-    }
-
-    /* 書き出し（③エクスポート） */
-    function exportChecked(filename = 'checked-list.txt') {
-      const lines = getSelectionArray().join('\n');
-      const blob = new Blob([lines], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    /* 読み込み（③インポート） */
-    async function importChecked(file) {
-      const text = await file.text();
-      const set = new Set(text.split(/\r?\n/).map(s => s.trim()).filter(Boolean));
-      applySelectionFromSet(set);
-      saveCheckedSet(set);   // localStorageにも同期（①）
-      updateStats();
-    }
-
-    /* 全解除 */
-    function clearAllSelection() {
-      const set = new Set();
-      applySelectionFromSet(set);
-      saveCheckedSet(set);
-      updateStats();
-    }
-    // ページ読込時
-    refreshSavedListUI();
   </script>
 
 </body>
