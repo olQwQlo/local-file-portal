@@ -21,7 +21,7 @@
     #controls { display: flex; gap: var(--gap); }
     #q { padding: .35rem .5rem; min-width: 16rem; }
     ul { list-style: none; padding-left: .75rem; margin: 0; }
-    li { user-select: none; }
+    li { user-select: text; }
     .folder { cursor: pointer; font-weight: 600; position: relative; padding-left: 1rem; line-height: 1.8; }
     .folder::before { content: "▶"; position: absolute; left: 0; top: 0; width: 1rem; display: inline-block; }
     .folder.open::before { content: "▽"; }
@@ -31,6 +31,10 @@
     .file a:hover { text-decoration: underline; }
     .muted { color: #666; font-size: .9em; }
     .hidden { display: none !important; }
+    .indent{
+      white-space: pre;  /* 空白を実体として保持 */
+      font-size: 0;     /* 表示幅は実質ゼロに（ただしDOMのテキストは残る） */
+    }
   </style>
 </head>
 <body>
@@ -278,6 +282,10 @@ Get-ChildItem -Recurse -File `
         // input/label/button/a をクリックしたときは無視
         if (ev.target.closest('input, label, button, a')) return;
 
+        // ★ 追加：テキスト選択がある場合は開閉しない
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+
         ev.stopPropagation();
         if (!built) {
           buildChildren(child, node);
@@ -292,7 +300,7 @@ Get-ChildItem -Recurse -File `
       return li;
     }
 
-    function buildChildren(ul, node) {
+    function buildChildren(ul, node, depth = 0) {
       const keys = Object.keys(node)
         .filter(k => k !== '__file' && k !== '__full')
         .sort((a, b) => {
@@ -305,10 +313,20 @@ Get-ChildItem -Recurse -File `
       for (const name of keys) {
         const childNode = node[name];
         const hasFolderChildren = isFolderNode(childNode) && !isFileNode(childNode);
+
+        const li = hasFolderChildren ? createFolderLi(name, childNode) : createFileLi(name, childNode);
+
+        // ★ テキストノードではなく span.indent を入れる
+        const indentSpan = document.createElement('span');
+        indentSpan.className = 'indent';
+        indentSpan.textContent = '  '.repeat(depth); // 2スペース×深さ
+        li.insertBefore(indentSpan, li.firstChild);
+
+        ul.appendChild(li);
+
         if (hasFolderChildren) {
-          ul.appendChild(createFolderLi(name, childNode));
-        } else {
-          ul.appendChild(createFileLi(name, childNode));
+          const nested = li.querySelector(':scope > .nested');
+          buildChildren(nested, childNode, depth + 1);
         }
       }
     }
