@@ -116,6 +116,12 @@ Get-ChildItem -Recurse -File -Path src,docs `
 | Select-Object -ExpandProperty FullName `
 | Out-File "filelist.txt" -Encoding utf8
 ```
+## 💡 補足: スクリプト版（おまけ）
+
+ワンライナーを直接コピペせずに使いたい場合、同梱の `Make-FileList.ps1` を実行してもOKです。  
+GUIでルートフォルダや保存先を選べるので、手動入力が不要になります。  
+
+基本はワンライナーで十分ですが、GUIが欲しい方はこちらをご利用ください。  
 
 ## 💡 使用例・ユースケース
 
