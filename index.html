@@ -153,14 +153,24 @@ Get-ChildItem -Recurse -File `
     }
 
     // --- ツリー構築 ---
-    function buildTree(lines) {
+    function buildTree(items) {
       const root = {};
       let count = 0;
-      for (const raw of lines) {
-        const cleaned = raw.replace(/^\uFEFF/, '').trim();
-        if (!cleaned) continue;
-        const norm = cleaned.replace(/^\.?[\\/]/, '').replace(/^\.[\\/]/, '');
-        const parts = norm.split(/[\\/]/).filter(Boolean);
+
+      for (const raw of items) {
+        // raw は { rel: 'kibunyaProject/…', full: 'D:\...\kibunyaProject\…' }
+        let rel, full;
+        if (typeof raw === 'string') {
+          // 後方互換（文字列が来た場合）
+          full = raw.replace(/^\uFEFF/, '').trim();
+          rel  = full.replace(/\\/g, '/');     // / 区切りへ
+        } else {
+          full = String(raw.full || '').replace(/^\uFEFF/, '').trim();
+          rel  = String(raw.rel  || '').trim(); // すでに / 区切り
+        }
+        if (!full || !rel) continue;
+
+        const parts = rel.split('/').filter(Boolean); // ← / 固定で分割
         let cur = root;
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
@@ -169,13 +179,14 @@ Get-ChildItem -Recurse -File `
           cur = cur[part];
           if (isLast) {
             cur.__file = true;
-            cur.__full = cleaned; // 元の文字列（相対/絶対/UNC）
+            cur.__full = full; // リンク用に元の絶対パスを保持
             count++;
           }
         }
       }
       return { root, count };
     }
+
 
     // --- DOMパーツ ---
     function createFileLi(name, node) {
@@ -332,6 +343,24 @@ Get-ChildItem -Recurse -File `
       updateStats();
     }
 
+    // --- 共通プレフィックスを探す ---
+    function getCommonPrefix(paths) {
+      if (paths.length === 0) return '';
+      const splitPaths = paths.map(p => p.split(/[\\/]/));
+      const minLen = Math.min(...splitPaths.map(parts => parts.length));
+      let prefixParts = [];
+      for (let i = 0; i < minLen; i++) {
+        const part = splitPaths[0][i];
+        if (splitPaths.every(parts => parts[i] === part)) {
+          prefixParts.push(part);
+        } else {
+          break;
+        }
+      }
+      return prefixParts.join('/');
+    }
+
+
     // --- 件数表示 ---
     function updateStats() {
       const total   = container.querySelectorAll('li.file').length;
@@ -346,13 +375,40 @@ Get-ChildItem -Recurse -File `
       const file = e.target.files?.[0];
       if (!file) return;
       const text = await file.text();
-      const lines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
-      const { root, count } = buildTree(lines);
+
+      // 元の行（絶対パス）
+      const origLines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
+      if (origLines.length === 0) return;
+
+      // 比較用に / 区切りへ正規化
+      const normLines = origLines.map(l => l.replace(/\\/g, '/'));
+
+      // 最も浅い共通ルートを算出
+      const commonRoot = getCommonPrefix(normLines);
+
+      // ツリー用：共通ルートを切り落とした「相対（/区切り）」と、元の絶対パスをペアで持つ
+      const items = normLines.map((norm, i) => {
+        const rel = norm.startsWith(commonRoot)
+          ? norm.slice(commonRoot.length).replace(/^\/+/, '')  // 先頭の / を削る
+          : norm;
+        return { rel, full: origLines[i] }; // rel は / 区切り、full は元の絶対パス
+      });
+
+      const { root, count } = buildTree(items);
       renderRoot(root);
+
+      // 「ここから下」を明示
+      const rootNotice = document.createElement('div');
+      rootNotice.className = "muted";
+      rootNotice.textContent = `ここから下を表示しています: ${commonRoot}`;
+      container.prepend(rootNotice);
+
       bar.classList.remove('hidden');
       resetInitialView();
       stats.textContent = `${count.toLocaleString()} files`;
     });
+
+
 
     expandAllBtn.onclick = () => expandCollapseAll(true, Infinity);
     collapseAllBtn.onclick = () => expandCollapseAll(false, Infinity);
