@@ -1,4 +1,4 @@
-<# 
+﻿<# 
   Local File Portal 用 filelist.txt 生成スクリプト（完全版）
   - GUIでルートフォルダを選択
   - 絶対パス or 相対パスを選択（相対パスは `/` 正規化）
@@ -16,7 +16,8 @@ param(
   [string]$ExcludeFolderRegex = '\\node_modules\\|\.git\\|\\dist\\|\\build\\|\\out\\|\\target\\|\.venv\\|\.m2\\|\.gradle',
   [string]$ExcludeFileRegex   = '^(~\$.*|.*\.(tmp|bak|obj|class|pyc))$',
   [int]$MaxFiles = 0,                        # 出力件数上限（0=無制限）
-  [switch]$NoSort                            # ソートしない
+  [switch]$NoSort,                           # ソートしない
+  [int]$Depth = -1                           # 追加: 深さ制限（-1=無制限、PS7で有効／5.1は無視）
 )
 
 # --- スクリプトパスの安全な取得 ---
@@ -28,28 +29,44 @@ $ScriptPath = if ($PSScriptRoot) {
   $PWD.Path 
 }
 
+# --- 追加: PS7 実行時は Windows PowerShell 5.1 へ自動フォールバック（GUI目的） ---
+#     ※ 5.1 が見つからない場合は継続実行
+try {
+  if ($PSVersionTable.PSEdition -eq 'Core') {
+    $pwsh51 = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (Test-Path -LiteralPath $pwsh51) {
+      $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', $MyInvocation.MyCommand.Path)
+      foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+        if ($kv.Value -is [switch]) {
+          if ($kv.Value) { $argList += "-$($kv.Key)" }
+        } else {
+          $argList += "-$($kv.Key)"; $argList += [string]$kv.Value
+        }
+      }
+      Start-Process -FilePath $pwsh51 -ArgumentList $argList -Wait | Out-Null
+      exit
+    }
+  }
+} catch { }
+
 # --- 必要なアセンブリの読み込み（STA再実行を含む） ---
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-  # STAで自分自身を再起動
-  $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName  = (Get-Process -Id $PID).Path
-  
-  # スクリプトパスを正しく渡す
+  # STAで自分自身を再起動（※ 引数は素の配列を渡す：手動の二重引用符は付けない）
+  $exe = (Get-Process -Id $PID).Path
   $scriptFile = if ($MyInvocation.MyCommand.Path) {
     $MyInvocation.MyCommand.Path
   } else {
     Join-Path $PWD.Path $MyInvocation.MyCommand.Name
   }
-  
-  $psi.Arguments = @(
-    '-NoProfile','-ExecutionPolicy','Bypass','-File',
-    ('"{0}"' -f $scriptFile)
-  ) + ($PSBoundParameters.GetEnumerator() | ForEach-Object {
-        if ($_.Value -is [switch] -and $_.Value) { "-$($_.Key)" }
-        elseif ($_.Value -is [switch]) { $null }
-        else { "-$($_.Key)"; ('"{0}"' -f $_.Value) }
-      })
-  [Diagnostics.Process]::Start($psi) | Out-Null
+  $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', $scriptFile)
+  foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+    if ($kv.Value -is [switch]) {
+      if ($kv.Value) { $argList += "-$($kv.Key)" }
+    } else {
+      $argList += "-$($kv.Key)"; $argList += [string]$kv.Value
+    }
+  }
+  Start-Process -FilePath $exe -ArgumentList $argList -Wait | Out-Null
   exit
 }
 
@@ -62,7 +79,7 @@ try {
   return
 }
 
-# --- 長いパス対策関数 ---
+# --- 長いパス対策関数（改善: UNC 対応を強化） ---
 function Add-LongPathPrefix([string]$Path) {
   if (-not $Path) { return $Path }
   if ($EnableLongPath) {
@@ -71,7 +88,6 @@ function Add-LongPathPrefix([string]$Path) {
   }
   return $Path
 }
-
 
 # --- ルートフォルダ選択 ---
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -141,7 +157,7 @@ if (-not $OutputPath) {
 $script:cancel = $false
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Local File Portal - filelist 生成中'
-$form.Width = 520; $form.Height = 150
+$form.Width = 520; $form.Height = 170
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -166,7 +182,7 @@ $form.Controls.AddRange(@($label, $prog, $btnCancel))
 $form.Show() | Out-Null
 $form.Refresh()
 
-# --- ファイル列挙（安全機能付き） ---
+# --- ファイル列挙パラメータ（Depth は PS7 で有効／5.1 は無視想定） ---
 $folderEx = $ExcludeFolderRegex
 $fileEx   = $ExcludeFileRegex
 
@@ -178,141 +194,141 @@ $gciParams = @{
 }
 if ($IncludeHidden) { $gciParams['Force'] = $true }
 
+# 追加: Depth サポート（PS 7 以降）
+try {
+  if ($Depth -ge 0 -and $PSVersionTable.PSVersion.Major -ge 7) {
+    $gciParams['Depth'] = $Depth
+  }
+} catch { }
+
+# --- 相対パスの前提チェック ---
+$hasIndexBesideScript = $false
+if ($Relative -and $ScriptPath) {
+  $indexPath = Join-Path $ScriptPath 'index.html'
+  if (Test-Path -LiteralPath $indexPath) { $hasIndexBesideScript = $true }
+}
+
+# --- 保存（UTF-8 BOMなし）をストリーミング化（メモリ一定・高速） ---
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$sw = $null
+
 try {
   if ($script:cancel) { return }
-  
-  # 変数の初期化
-  $items = @()
-  $lines = @()
-  
-  $items = Get-ChildItem @gciParams |
-    Where-Object {
-      # 再解析ポイント（シンボリックリンク等）を既定除外
+
+  # 出力ディレクトリ作成
+  if (-not $OutputPath) { throw "出力パスが決定できませんでした。" }
+  $outputDir = Split-Path -Parent $OutputPath
+  if ($outputDir -and -not (Test-Path -LiteralPath $outputDir)) {
+    $null = New-Item -ItemType Directory -Force -Path $outputDir
+  }
+
+  # ライタを開く
+  $sw = [System.IO.StreamWriter]::new($OutputPath, $false, $utf8NoBom)
+
+  # 追加: ヘッダー行（再現性のためのメタ情報）
+  $sw.WriteLine("# Local File Portal filelist")
+  $sw.WriteLine("# generated=$(Get-Date -Format o)")
+  $sw.WriteLine("# root=$root")
+  $sw.WriteLine("# mode=" + ($(if($Relative){"relative"}else{"absolute"})))
+  if ($IncludeHidden) { $sw.WriteLine("# includeHidden=true") }
+  if ($EnableLongPath) { $sw.WriteLine("# longPathPrefix=true") }
+  if ($Depth -ge 0) { $sw.WriteLine("# depth=$Depth") }
+  if ($ExcludeFolderRegex) { $sw.WriteLine("# excludeFolderRegex=$ExcludeFolderRegex") }
+  if ($ExcludeFileRegex)   { $sw.WriteLine("# excludeFileRegex=$ExcludeFileRegex") }
+
+  $label.Text = '列挙中...'
+  $form.Refresh()
+
+  $writeCount = 0
+
+  # --- 2パス: ソートあり/なしで分岐 ---
+  if ($NoSort) {
+    # ソートなし: 列挙をフィルタして即書き出し（最小メモリ）
+    $enum = Get-ChildItem @gciParams | Where-Object {
       ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
       $_.FullName -notmatch $folderEx -and
       $_.Name     -notmatch $fileEx
     }
 
-  if ($script:cancel) { $form.Close(); return }
+    foreach ($item in $enum) {
+      if ($script:cancel) { break }
 
-  # 配列として確実に取得
-  if ($items -isnot [array]) { $items = @($items) }
+      if ($Relative -and $hasIndexBesideScript) {
+        Push-Location $ScriptPath
+        try {
+          $rel = Resolve-Path -LiteralPath $item.FullName -Relative
+          if ($rel.StartsWith('.\')) { $rel = $rel.Substring(2) }
+          $line = ($rel -replace '\\','/')
+        } finally { Pop-Location }
+      } else {
+        $line = Add-LongPathPrefix $item.FullName
+      }
 
-  # ソート処理
-  if (-not $NoSort) {
+      $sw.WriteLine($line)
+      $writeCount++
+
+      if ($MaxFiles -gt 0 -and $writeCount -ge $MaxFiles) { break }
+    }
+
+  } else {
+    # ソートあり: 一度配列化→ソート→書き出し
+    $label.Text = '列挙中...(ソートあり)'
+    $form.Refresh()
+
+    $items = Get-ChildItem @gciParams | Where-Object {
+      ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+      $_.FullName -notmatch $folderEx -and
+      $_.Name     -notmatch $fileEx
+    }
+
+    if ($script:cancel) { $form.Close(); return }
+
+    if ($items -isnot [array]) { $items = @($items) }
+
     $label.Text = 'ソート中...'
     $form.Refresh()
     $items = $items | Sort-Object FullName
-  }
 
-  if ($script:cancel) { $form.Close(); return }
+    $label.Text = '保存中...'
+    $form.Refresh()
 
-  # 件数制限チェック
-  if ($MaxFiles -gt 0 -and $items.Count -gt $MaxFiles) {
-    $form.Close()
-    if (-not $Quiet) {
-      [System.Windows.Forms.MessageBox]::Show(
-        "対象が $($items.Count) 件あります。MaxFiles=$MaxFiles を超えています。`r`n" +
-        "除外ルールを見直すか MaxFiles を引き上げて再実行してください。",
-        '件数オーバー','OK','Warning'
-      ) | Out-Null
-    }
-    return
-  }
-
-  $label.Text = 'パス変換中...'
-  $form.Refresh()
-
-  # --- パス変換（絶対 or 相対） ---
-  $pathList = @()
-  if ($Relative -and $ScriptPath) {
-    $indexPath = Join-Path $ScriptPath 'index.html'
-    if (Test-Path -LiteralPath $indexPath) {
-      Push-Location $ScriptPath
-      try {
-        foreach ($item in $items) {
-          if ($cancel) { break }
-          # index.html からの相対パスを生成
-          $relativePath = Resolve-Path -LiteralPath $item.FullName -Relative
-          # PowerShell の Resolve-Path は ".\" で始まるので、それを削除
-          if ($relativePath.StartsWith('.\')) {
-            $relativePath = $relativePath.Substring(2)
-          }
-          # ブラウザ用に \ を / に正規化
-          $pathList += ($relativePath -replace '\\','/')
-        }
-      } finally { Pop-Location }
-    } else {
-      # index.htmlが見つからない場合は絶対パス
-      foreach ($item in $items) {
-        if ($script:cancel) { break }
-        $pathList += (Add-LongPathPrefix $item.FullName)
-      }
-    }
-  } else {
-    # 絶対パス（UNC/ローカル両対応、長いパス対策付き）
     foreach ($item in $items) {
       if ($script:cancel) { break }
-      $pathList += (Add-LongPathPrefix $item.FullName)
-    }
-  }
 
-  if ($script:cancel) { $form.Close(); return }
-  
-  $lines = $pathList
-
-  $label.Text = '保存中...'
-  $form.Refresh()
-
-  # --- 保存（UTF-8 BOMなし） ---
-  if (-not $OutputPath) {
-    throw "出力パスが決定できませんでした。"
-  }
-  
-  $outputDir = Split-Path -Parent $OutputPath
-  if ($outputDir -and -not (Test-Path -LiteralPath $outputDir)) {
-    $null = New-Item -ItemType Directory -Force -Path $outputDir
-  }
-  
-  # UTF-8（BOMなし）で保存を試行
-  if ($lines -and $lines.Count -gt 0) {
-    try {
-      # PS 7 では BOMなしを明示可能
-      if ($PSVersionTable.PSVersion.Major -ge 7) {
-        $lines | Out-File -LiteralPath $OutputPath -Encoding utf8NoBOM
+      if ($Relative -and $hasIndexBesideScript) {
+        Push-Location $ScriptPath
+        try {
+          $rel = Resolve-Path -LiteralPath $item.FullName -Relative
+          if ($rel.StartsWith('.\')) { $rel = $rel.Substring(2) }
+          $line = ($rel -replace '\\','/')
+        } finally { Pop-Location }
       } else {
-        # PS 5.1 では Set-Content を使用（BOMなし）
-        $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+        $line = Add-LongPathPrefix $item.FullName
       }
-    } catch {
-      # フォールバック: Out-File を使用
-      $lines | Out-File -LiteralPath $OutputPath -Encoding utf8
+
+      $sw.WriteLine($line)
+      $writeCount++
+
+      if ($MaxFiles -gt 0 -and $writeCount -ge $MaxFiles) { break }
     }
-  } else {
-    # 空のファイルを作成
-    '' | Out-File -LiteralPath $OutputPath -Encoding utf8
   }
 
   $form.Close()
-  
+
   if (-not $Quiet) {
     $pathType = if ($Relative) { "相対パス（/ 正規化済み）" } else { "絶対パス" }
     $longPathNote = if ($EnableLongPath -and -not $Relative) { "（長いパス対策適用）" } else { "" }
-    $fileCount = if ($lines) { $lines.Count } else { 0 }
-    
-    $message = "filelist.txt を出力しました:`r`n{0}`r`n`r`n対象: {1}`r`n件数: {2}`r`n形式: {3}{4}" -f $OutputPath, $root, $fileCount, $pathType, $longPathNote
-    
+    $message = "filelist.txt を出力しました:`r`n{0}`r`n`r`n対象: {1}`r`n件数: {2}`r`n形式: {3}{4}" -f $OutputPath, $root, $writeCount, $pathType, $longPathNote
     [System.Windows.Forms.MessageBox]::Show($message, '完了', 'OK', 'Information') | Out-Null
   }
 
 } catch {
-  $form.Close()
+  try { if ($form -and -not $form.IsDisposed) { $form.Close() } } catch {}
   [System.Windows.Forms.MessageBox]::Show(
     "エラーが発生しました:`r`n$($_.Exception.Message)"
   , 'エラー', 'OK', 'Error') | Out-Null
   throw
 } finally {
-  if ($form -and -not $form.IsDisposed) {
-    $form.Close()
-  }
+  if ($sw) { $sw.Dispose() }
+  try { if ($form -and -not $form.IsDisposed) { $form.Close() } } catch {}
 }
