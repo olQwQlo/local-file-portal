@@ -58,6 +58,13 @@ Get-ChildItem -Recurse -File `
       <strong>2) filelist.txt を選択（1行1パス）</strong><br>
       <input type="file" id="picker" accept=".txt" />
     </div>
+    <!-- ▼ 追加：保存/復元UI -->
+    <div id="savedListBar" class="muted" style="margin-top:.5rem; display:flex; gap:.5rem; align-items:center;">
+      <button id="useSavedList" type="button" disabled>保存済みのリストを使う</button>
+      <button id="clearSavedList" type="button" disabled>保存を削除</button>
+      <span id="savedInfo"></span>
+    </div>
+    <!-- ▲ 追加ここまで -->
 
     <div id="bar" class="hidden">
       <input id="q" type="search" placeholder="ファイル名を検索（部分一致）">
@@ -128,6 +135,50 @@ Get-ChildItem -Recurse -File `
     const resetViewBtn = document.getElementById('resetView');
     const container = document.getElementById('tree');
     const stats = document.getElementById('stats');
+
+    // --- 保存用キー
+    const SAVED_LIST_KEY = 'lfp_saved_filelist_v1';
+    const SAVED_META_KEY = 'lfp_saved_filelist_meta_v1';
+
+    // 保存
+    function saveListText(text) {
+      try {
+        localStorage.setItem(SAVED_LIST_KEY, text);
+        const meta = { savedAt: new Date().toISOString(), lines: text.split(/\r\n|\r|\n/).filter(Boolean).length };
+        localStorage.setItem(SAVED_META_KEY, JSON.stringify(meta));
+        refreshSavedListUI();
+      } catch (e) {
+        alert('保存に失敗しました（容量上限の可能性）');
+      }
+    }
+
+    // 取得
+    function getSavedListText() {
+      return localStorage.getItem(SAVED_LIST_KEY) || '';
+    }
+
+    // 削除
+    function clearSavedList() {
+      localStorage.removeItem(SAVED_LIST_KEY);
+      localStorage.removeItem(SAVED_META_KEY);
+      refreshSavedListUI();
+    }
+
+    // UI更新
+    function refreshSavedListUI() {
+      const txt = getSavedListText();
+      const useBtn = document.getElementById('useSavedList');
+      const clrBtn = document.getElementById('clearSavedList');
+      const info   = document.getElementById('savedInfo');
+      const metaRaw = localStorage.getItem(SAVED_META_KEY);
+      const meta = metaRaw ? JSON.parse(metaRaw) : null;
+
+      const has = !!txt;
+      useBtn.disabled = !has;
+      clrBtn.disabled = !has;
+      info.textContent = has && meta ? `（保存済み: ${new Date(meta.savedAt).toLocaleString()} / ${meta.lines} 行）` : '';
+    }
+
 
     // --- ツリーモデル判定 ---
     function isFolderNode(node) {
@@ -359,6 +410,34 @@ Get-ChildItem -Recurse -File `
       }
       return prefixParts.join('/');
     }
+    // ★ filelistテキスト → ツリー描画（共通ルート省略＆明示まで）
+    function renderFromText(text) {
+      const origLines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
+      if (origLines.length === 0) return;
+
+      const normLines = origLines.map(l => l.replace(/\\/g, '/'));
+      const commonRoot = getCommonPrefix(normLines);
+
+      const items = normLines.map((norm, i) => {
+        const rel = norm.startsWith(commonRoot)
+          ? norm.slice(commonRoot.length).replace(/^\/+/, '')
+          : norm;
+        return { rel, full: origLines[i] };
+      });
+
+      const { root, count } = buildTree(items);
+      renderRoot(root);
+
+      // 明示
+      const rootNotice = document.createElement('div');
+      rootNotice.className = "muted";
+      rootNotice.textContent = `ここから下を表示しています: ${commonRoot}`;
+      container.prepend(rootNotice);
+
+      bar.classList.remove('hidden');
+      resetInitialView();
+      stats.textContent = `${count.toLocaleString()} files`;
+    }
 
 
     // --- 件数表示 ---
@@ -376,36 +455,11 @@ Get-ChildItem -Recurse -File `
       if (!file) return;
       const text = await file.text();
 
-      // 元の行（絶対パス）
-      const origLines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
-      if (origLines.length === 0) return;
+      // 自動保存
+      saveListText(text);
 
-      // 比較用に / 区切りへ正規化
-      const normLines = origLines.map(l => l.replace(/\\/g, '/'));
-
-      // 最も浅い共通ルートを算出
-      const commonRoot = getCommonPrefix(normLines);
-
-      // ツリー用：共通ルートを切り落とした「相対（/区切り）」と、元の絶対パスをペアで持つ
-      const items = normLines.map((norm, i) => {
-        const rel = norm.startsWith(commonRoot)
-          ? norm.slice(commonRoot.length).replace(/^\/+/, '')  // 先頭の / を削る
-          : norm;
-        return { rel, full: origLines[i] }; // rel は / 区切り、full は元の絶対パス
-      });
-
-      const { root, count } = buildTree(items);
-      renderRoot(root);
-
-      // 「ここから下」を明示
-      const rootNotice = document.createElement('div');
-      rootNotice.className = "muted";
-      rootNotice.textContent = `ここから下を表示しています: ${commonRoot}`;
-      container.prepend(rootNotice);
-
-      bar.classList.remove('hidden');
-      resetInitialView();
-      stats.textContent = `${count.toLocaleString()} files`;
+      // 描画
+      renderFromText(text);
     });
 
 
@@ -435,6 +489,21 @@ Get-ChildItem -Recurse -File `
         cb.checked = selSet.has(cb.dataset.full);
       });
     }
+
+    const useSavedBtn = document.getElementById('useSavedList');
+    const clearSavedBtn = document.getElementById('clearSavedList');
+
+    useSavedBtn.onclick = () => {
+      const txt = getSavedListText();
+      if (!txt) return;
+      renderFromText(txt);
+    };
+
+    clearSavedBtn.onclick = () => {
+      if (confirm('保存済みのリストを削除しますか？')) {
+        clearSavedList();
+      }
+    };
 
     /* ファイル行にチェックボックスを付与 */
     function attachCheckbox(li, fullPath) {
@@ -488,7 +557,8 @@ Get-ChildItem -Recurse -File `
       saveCheckedSet(set);
       updateStats();
     }
-
+    // ページ読込時
+    refreshSavedListUI();
   </script>
 
 </body>
