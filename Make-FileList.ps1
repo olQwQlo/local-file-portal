@@ -135,7 +135,7 @@ if (-not $OutputPath) {
 }
 
 # --- 進捗フォーム（キャンセル対応） ---
-$cancel = $false
+$script:cancel = $false
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Local File Portal - filelist 生成中'
 $form.Width = 520; $form.Height = 150
@@ -157,7 +157,7 @@ $btnCancel = New-Object System.Windows.Forms.Button
 $btnCancel.Text = 'キャンセル'
 $btnCancel.Width = 80; $btnCancel.Height = 25
 $btnCancel.Location = New-Object System.Drawing.Point(407,70)
-$btnCancel.Add_Click({ $cancel = $true; $form.Close() })
+$btnCancel.Add_Click({ $script:cancel = $true; $form.Close() })
 
 $form.Controls.AddRange(@($label, $prog, $btnCancel))
 $form.Show() | Out-Null
@@ -176,7 +176,7 @@ $gciParams = @{
 if ($IncludeHidden) { $gciParams['Force'] = $true }
 
 try {
-  if ($cancel) { return }
+  if ($script:cancel) { return }
   
   # 変数の初期化
   $items = @()
@@ -190,7 +190,7 @@ try {
       $_.Name     -notmatch $fileEx
     }
 
-  if ($cancel) { $form.Close(); return }
+  if ($script:cancel) { $form.Close(); return }
 
   # 配列として確実に取得
   if ($items -isnot [array]) { $items = @($items) }
@@ -202,7 +202,7 @@ try {
     $items = $items | Sort-Object FullName
   }
 
-  if ($cancel) { $form.Close(); return }
+  if ($script:cancel) { $form.Close(); return }
 
   # 件数制限チェック
   if ($MaxFiles -gt 0 -and $items.Count -gt $MaxFiles) {
@@ -242,19 +242,19 @@ try {
     } else {
       # index.htmlが見つからない場合は絶対パス
       foreach ($item in $items) {
-        if ($cancel) { break }
+        if ($script:cancel) { break }
         $pathList += (Add-LongPathPrefix $item.FullName)
       }
     }
   } else {
     # 絶対パス（UNC/ローカル両対応、長いパス対策付き）
     foreach ($item in $items) {
-      if ($cancel) { break }
+      if ($script:cancel) { break }
       $pathList += (Add-LongPathPrefix $item.FullName)
     }
   }
 
-  if ($cancel) { $form.Close(); return }
+  if ($script:cancel) { $form.Close(); return }
   
   $lines = $pathList
 
