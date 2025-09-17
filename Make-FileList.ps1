@@ -178,6 +178,10 @@ if ($IncludeHidden) { $gciParams['Force'] = $true }
 try {
   if ($cancel) { return }
   
+  # 変数の初期化
+  $items = @()
+  $lines = @()
+  
   $items = Get-ChildItem @gciParams |
     Where-Object {
       # 再解析ポイント（シンボリックリンク等）を既定除外
@@ -187,6 +191,9 @@ try {
     }
 
   if ($cancel) { $form.Close(); return }
+
+  # 配列として確実に取得
+  if ($items -isnot [array]) { $items = @($items) }
 
   # ソート処理
   if (-not $NoSort) {
@@ -214,39 +221,42 @@ try {
   $form.Refresh()
 
   # --- パス変換（絶対 or 相対） ---
-  $lines = if ($Relative -and $ScriptPath) {
+  $pathList = @()
+  if ($Relative -and $ScriptPath) {
     $indexPath = Join-Path $ScriptPath 'index.html'
     if (Test-Path -LiteralPath $indexPath) {
       Push-Location $ScriptPath
       try {
-        $items | ForEach-Object {
+        foreach ($item in $items) {
           if ($cancel) { break }
           # index.html からの相対パスを生成
-          $relativePath = Resolve-Path -LiteralPath $_.FullName -Relative
+          $relativePath = Resolve-Path -LiteralPath $item.FullName -Relative
           # PowerShell の Resolve-Path は ".\" で始まるので、それを削除
           if ($relativePath.StartsWith('.\')) {
             $relativePath = $relativePath.Substring(2)
           }
           # ブラウザ用に \ を / に正規化
-          $relativePath -replace '\\','/'
+          $pathList += ($relativePath -replace '\\','/')
         }
       } finally { Pop-Location }
     } else {
       # index.htmlが見つからない場合は絶対パス
-      $items | ForEach-Object { 
+      foreach ($item in $items) {
         if ($cancel) { break }
-        Add-LongPathPrefix $_.FullName 
+        $pathList += (Add-LongPathPrefix $item.FullName)
       }
     }
   } else {
     # 絶対パス（UNC/ローカル両対応、長いパス対策付き）
-    $items | ForEach-Object { 
+    foreach ($item in $items) {
       if ($cancel) { break }
-      Add-LongPathPrefix $_.FullName 
+      $pathList += (Add-LongPathPrefix $item.FullName)
     }
   }
 
   if ($cancel) { $form.Close(); return }
+  
+  $lines = $pathList
 
   $label.Text = '保存中...'
   $form.Refresh()
@@ -262,17 +272,22 @@ try {
   }
   
   # UTF-8（BOMなし）で保存を試行
-  try {
-    # PS 7 では BOMなしを明示可能
-    if ($PSVersionTable.PSVersion.Major -ge 7) {
-      $lines | Out-File -LiteralPath $OutputPath -Encoding utf8NoBOM
-    } else {
-      # PS 5.1 では Set-Content を使用（BOMなし）
-      $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+  if ($lines -and $lines.Count -gt 0) {
+    try {
+      # PS 7 では BOMなしを明示可能
+      if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $lines | Out-File -LiteralPath $OutputPath -Encoding utf8NoBOM
+      } else {
+        # PS 5.1 では Set-Content を使用（BOMなし）
+        $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+      }
+    } catch {
+      # フォールバック: Out-File を使用
+      $lines | Out-File -LiteralPath $OutputPath -Encoding utf8
     }
-  } catch {
-    # フォールバック: Out-File を使用
-    $lines | Out-File -LiteralPath $OutputPath -Encoding utf8
+  } else {
+    # 空のファイルを作成
+    '' | Out-File -LiteralPath $OutputPath -Encoding utf8
   }
 
   $form.Close()
@@ -280,13 +295,11 @@ try {
   if (-not $Quiet) {
     $pathType = if ($Relative) { "相対パス（/ 正規化済み）" } else { "絶対パス" }
     $longPathNote = if ($EnableLongPath -and -not $Relative) { "（長いパス対策適用）" } else { "" }
+    $fileCount = if ($lines) { $lines.Count } else { 0 }
     
-    [System.Windows.Forms.MessageBox]::Show(
-      "filelist.txt を出力しました:`r`n$OutputPath`r`n`r`n" +
-      "対象: $root`r`n" +
-      "件数: {0}`r`n" +
-      "形式: {1}{2}" -f $lines.Count, $pathType, $longPathNote
-    , '完了', 'OK', 'Information') | Out-Null
+    $message = "filelist.txt を出力しました:`r`n{0}`r`n`r`n対象: {1}`r`n件数: {2}`r`n形式: {3}{4}" -f $OutputPath, $root, $fileCount, $pathType, $longPathNote
+    
+    [System.Windows.Forms.MessageBox]::Show($message, '完了', 'OK', 'Information') | Out-Null
   }
 
 } catch {
