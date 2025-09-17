@@ -323,6 +323,9 @@ Get-ChildItem -Recurse -File `
 
     // --- 展開/折りたたみ ---
     function expandCollapseAll(expand = true, depth = Infinity) {
+      const rootUL = container.querySelector(':scope > ul'); // ★ 追加：正しい起点
+      if (!rootUL) return;
+
       const walk = (el, d) => {
         if (!el || d > depth) return;
         el.querySelectorAll(':scope > li.folder').forEach(li => {
@@ -343,8 +346,10 @@ Get-ChildItem -Recurse -File `
           if (nested) walk(nested, d + 1);
         });
       };
-      walk(container.firstElementChild, 1);
+
+      walk(rootUL, 1); // ★ ここも rootUL を渡す
     }
+
 
     function resetInitialView() {
       // 深さ2まで展開（第一階層＋その子）
