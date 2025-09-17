@@ -64,11 +64,14 @@ try {
 
 # --- 長いパス対策関数 ---
 function Add-LongPathPrefix([string]$Path) {
-  if ($Path -and $Path -match '^[a-zA-Z]:\\' -and $EnableLongPath) {
-    return '\\\\?\\' + $Path
+  if (-not $Path) { return $Path }
+  if ($EnableLongPath) {
+    if ($Path -match '^[a-zA-Z]:\\') { return '\\?\'+$Path }
+    if ($Path -match '^\\\\[^\\]')   { return '\\?\UNC\' + $Path.TrimStart('\') }
   }
   return $Path
 }
+
 
 # --- ルートフォルダ選択 ---
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
