@@ -42,21 +42,18 @@
     <div id="genRow">
       <strong>1) パス一覧（filelist.txt）を PowerShell で作成</strong>
       <div id="codeWrap">
-        <pre id="codeBlock"><code># ルート（＝index.html を置くフォルダ）で実行し、相対パスの一覧を出力
+        <pre id="codeBlock"><code># ルート（＝index.html を置くフォルダ）で実行し、絶対パスの一覧を出力
 Get-ChildItem -Recurse -File `
-| Resolve-Path -Relative `
+| Where-Object {
+    $_.FullName -notmatch '\\node_modules\\|\\.git\\|dist\\|build\\|out\\|target\\|\\.venv\\|\\.m2\\|\\.gradle' -and
+    $_.Name -notmatch '^(~\$.*|.*\.(tmp|bak|obj|class|pyc))$'
+} `
+| Select-Object -ExpandProperty FullName `
 | Out-File "$env:USERPROFILE\Downloads\filelist.txt" -Encoding utf8
-
-# 大量/不要ファイルを除外したい場合の例
-# Get-ChildItem -Recurse -File `
-# | Where-Object { $_.FullName -notmatch '\\node_modules\\|\.git\\|\\~\$' } `
-# | Resolve-Path -Relative `
-# | Out-File "$env:USERPROFILE\Downloads\filelist.txt" -Encoding utf8</code></pre>
+# 生成された filelist.txt をこのページで読み込み、ツリー表示
+</code></pre><br>
         <button id="copyBtn" type="button">コピー</button>
       </div>
-      <div class="muted">※ 絶対パスで作る場合は <code>Select-Object -ExpandProperty FullName</code> でもOKです。</div>
-    </div>
-
     <div>
       <strong>2) filelist.txt を選択（1行1パス）</strong><br>
       <input type="file" id="picker" accept=".txt" />
@@ -69,6 +66,18 @@ Get-ChildItem -Recurse -File `
         <button id="collapseAll" type="button">すべて折りたたみ</button>
         <button id="resetView" type="button">初期表示に戻す</button>
       </div>
+      <!-- ▼ 選択の保持系 ▼ -->
+      <div id="selControls" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+        <button id="saveSelection" type="button">選択を保存（local）</button>
+        <button id="clearSelection" type="button">選択を全解除</button>
+        <button id="exportSelection" type="button">選択をテキストへ書き出し</button>
+        <label style="display:inline-flex;gap:.25rem;align-items:center;cursor:pointer;">
+          <input id="importSelection" type="file" accept=".txt" style="display:none;">
+          <span style="border:1px solid #ccc;padding:.25rem .5rem;border-radius:4px;">選択を読み込み（.txt）</span>
+        </label>
+      </div>
+      <!-- ▲ 選択の保持系 ▲ -->
+
       <span id="stats" class="muted"></span>
     </div>
   </section>
@@ -88,6 +97,27 @@ Get-ChildItem -Recurse -File `
         alert("コピーに失敗しました: " + err);
       }
     });
+    // ▼ ツールバーの要素参照
+    const saveSelectionBtn   = document.getElementById('saveSelection');
+    const clearSelectionBtn  = document.getElementById('clearSelection');
+    const exportSelectionBtn = document.getElementById('exportSelection');
+    const importSelectionInp = document.getElementById('importSelection');
+
+    // ▼ ハンドラ
+    saveSelectionBtn.onclick = () => {
+      const set = new Set(getSelectionArray());
+      saveCheckedSet(set);
+    };
+
+    clearSelectionBtn.onclick = () => clearAllSelection();
+
+    exportSelectionBtn.onclick = () => exportChecked();
+
+    importSelectionInp.onchange = (e) => {
+      const f = e.target.files?.[0];
+      if (f) importChecked(f).finally(() => { importSelectionInp.value = ''; });
+    };
+
 
     // --- 要素参照 ---
     const picker = document.getElementById('picker');
@@ -129,7 +159,7 @@ Get-ChildItem -Recurse -File `
       for (const raw of lines) {
         const cleaned = raw.replace(/^\uFEFF/, '').trim();
         if (!cleaned) continue;
-        const norm = cleaned.replace(/^\.?[\\/]/, '');
+        const norm = cleaned.replace(/^\.?[\\/]/, '').replace(/^\.[\\/]/, '');
         const parts = norm.split(/[\\/]/).filter(Boolean);
         let cur = root;
         for (let i = 0; i < parts.length; i++) {
@@ -159,7 +189,12 @@ Get-ChildItem -Recurse -File `
       a.target = '_blank';
       a.rel = 'noopener';
       a.href = encodeURI(toFileURL(node.__full || name));
+
+      // クリックが伝播して親の折りたたみが動くのを防止 
+      a.addEventListener('click', (e) => e.stopPropagation());
+
       li.appendChild(a);
+      attachCheckbox(li, node.__full || name);
       return li;
     }
 
@@ -177,6 +212,10 @@ Get-ChildItem -Recurse -File `
 
       let built = false;
       li.addEventListener('click', (ev) => {
+
+        // input/label/button/a をクリックしたときは無視
+        if (ev.target.closest('input, label, button, a')) return;
+
         ev.stopPropagation();
         if (!built) {
           buildChildren(child, node);
@@ -295,10 +334,12 @@ Get-ChildItem -Recurse -File `
 
     // --- 件数表示 ---
     function updateStats() {
-      const total = container.querySelectorAll('li.file').length;
+      const total   = container.querySelectorAll('li.file').length;
       const visible = container.querySelectorAll('li.file:not(.hidden)').length;
-      stats.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} files`;
+      const checked = container.querySelectorAll('li.file input[type=checkbox]:checked').length;
+      stats.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} files  ·  selected ${checked}`;
     }
+
 
     // --- イベント ---
     picker.addEventListener('change', async (e) => {
@@ -318,6 +359,80 @@ Get-ChildItem -Recurse -File `
     resetViewBtn.onclick = () => resetInitialView();
 
     q.addEventListener('input', () => applyFilter(q.value.trim()));
+
+    /* ====== 選択（チェック）を保存・読み書きする仕組み ====== */
+    const STORAGE_KEY = 'lfp_checked_paths_v1';
+
+    function getCheckedSet() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return new Set(raw ? JSON.parse(raw) : []);
+    }
+    function saveCheckedSet(set) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+    }
+    function getSelectionArray() {
+      return [...container.querySelectorAll('li.file input[type=checkbox]:checked')]
+            .map(cb => cb.dataset.full);
+    }
+    function applySelectionFromSet(selSet) {
+      container.querySelectorAll('li.file input[type=checkbox]').forEach(cb => {
+        cb.checked = selSet.has(cb.dataset.full);
+      });
+    }
+
+    /* ファイル行にチェックボックスを付与 */
+    function attachCheckbox(li, fullPath) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.title = '重要（選択リスト）';
+      cb.dataset.full = fullPath;
+
+      // クリックが伝播してリンクが開くのを防止
+      cb.addEventListener('click', (e) => e.stopPropagation());
+
+
+      // localStorageの選択状態を反映
+      const sel = getCheckedSet();
+      cb.checked = sel.has(fullPath);
+
+      cb.addEventListener('change', () => {
+        const s = getCheckedSet();
+        cb.checked ? s.add(fullPath) : s.delete(fullPath);
+        saveCheckedSet(s);
+        updateStats();
+      });
+
+      // 見た目：行頭に配置
+      li.prepend(cb);
+    }
+
+    /* 書き出し（③エクスポート） */
+    function exportChecked(filename = 'checked-list.txt') {
+      const lines = getSelectionArray().join('\n');
+      const blob = new Blob([lines], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* 読み込み（③インポート） */
+    async function importChecked(file) {
+      const text = await file.text();
+      const set = new Set(text.split(/\r?\n/).map(s => s.trim()).filter(Boolean));
+      applySelectionFromSet(set);
+      saveCheckedSet(set);   // localStorageにも同期（①）
+      updateStats();
+    }
+
+    /* 全解除 */
+    function clearAllSelection() {
+      const set = new Set();
+      applySelectionFromSet(set);
+      saveCheckedSet(set);
+      updateStats();
+    }
+
   </script>
 
 </body>
