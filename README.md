@@ -3,7 +3,7 @@
 **単一HTMLファイルで完結するローカルファイルポータル**  
 UNC・絶対・相対パス対応、ツリービュー・検索・選択機能付き
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 ![Version: 1.0](https://img.shields.io/badge/Version-1.0-green.svg)
 ![No Dependencies](https://img.shields.io/badge/Dependencies-None-orange.svg)
 
@@ -192,7 +192,7 @@ JavaScriptの `buildTreeFromLines` メソッド内でフィルター条件をカ
 
 ## 📄 ライセンス
 
-MIT License - 自由に使用・改変・配布可能
+Apache License 2.0 - 自由に使用・改変・配布可能（著作権表示と免責事項の保持が必要）
 
 ## 🤝 貢献
 
