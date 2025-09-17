@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>ローカルファイルポータル（ツリービュー）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gap: .5rem; }
+    body { font-family: system-ui, -apple-system, Segoe UI, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; line-height: 1.6; margin: 1rem; }
+    h1 { margin: 0 0 .25rem; font-size: 1.25rem; }
+    .sub { margin: 0 0 1rem; color: #555; }
+    #panel { display: grid; gap: .75rem; margin: 0 0 1rem; }
+    #genRow { display: grid; gap: .5rem; }
+    #codeWrap { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .5rem; }
+    pre {
+      background: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 0;
+    }
+    button, input[type="file"] { font: inherit; }
+    #copyBtn { cursor: pointer; padding: 4px 10px; }
+    #bar { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+    #controls { display: flex; gap: var(--gap); }
+    #q { padding: .35rem .5rem; min-width: 16rem; }
+    ul { list-style: none; padding-left: .75rem; margin: 0; }
+    li { user-select: none; }
+    .folder { cursor: pointer; font-weight: 600; position: relative; padding-left: 1rem; line-height: 1.8; }
+    .folder::before { content: "▶"; position: absolute; left: 0; top: 0; width: 1rem; display: inline-block; }
+    .folder.open::before { content: "▽"; }
+    .nested { display: none; margin-left: .5rem; }
+    .nested.active { display: block; }
+    .file a { text-decoration: none; }
+    .file a:hover { text-decoration: underline; }
+    .muted { color: #666; font-size: .9em; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <h1>ローカルファイルポータル（ツリービュー）</h1>
+  <p class="sub">単体HTMLで完結：相対/絶対/UNCパス対応、検索・一括展開つき。</p>
+
+  <section id="panel">
+    <div id="genRow">
+      <strong>1) パス一覧（filelist.txt）を PowerShell で作成</strong>
+      <div id="codeWrap">
+        <pre id="codeBlock"><code># ルート（＝index.html を置くフォルダ）で実行し、相対パスの一覧を出力
+Get-ChildItem -Recurse -File `
+| Resolve-Path -Relative `
+| Out-File "$env:USERPROFILE\Downloads\filelist.txt" -Encoding utf8
+
+# 大量/不要ファイルを除外したい場合の例
+# Get-ChildItem -Recurse -File `
+# | Where-Object { $_.FullName -notmatch '\\node_modules\\|\.git\\|\\~\$' } `
+# | Resolve-Path -Relative `
+# | Out-File "$env:USERPROFILE\Downloads\filelist.txt" -Encoding utf8</code></pre>
+        <button id="copyBtn" type="button">コピー</button>
+      </div>
+      <div class="muted">※ 絶対パスで作る場合は <code>Select-Object -ExpandProperty FullName</code> でもOKです。</div>
+    </div>
+
+    <div>
+      <strong>2) filelist.txt を選択（1行1パス）</strong><br>
+      <input type="file" id="picker" accept=".txt" />
+    </div>
+
+    <div id="bar" class="hidden">
+      <input id="q" type="search" placeholder="ファイル名を検索（部分一致）">
+      <div id="controls">
+        <button id="expandAll" type="button">すべて展開</button>
+        <button id="collapseAll" type="button">すべて折りたたみ</button>
+        <button id="resetView" type="button">初期表示に戻す</button>
+      </div>
+      <span id="stats" class="muted"></span>
+    </div>
+  </section>
+
+  <div id="tree" aria-label="ファイルツリー" role="tree"></div>
+
+  <script>
+    // --- ヘッダ操作（コピー） ---
+    const copyBtn = document.getElementById('copyBtn');
+    const codeBlock = document.getElementById('codeBlock').innerText.trim();
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(codeBlock);
+        copyBtn.textContent = "コピーしました！";
+        setTimeout(() => copyBtn.textContent = "コピー", 2000);
+      } catch (err) {
+        alert("コピーに失敗しました: " + err);
+      }
+    });
+
+    // --- 要素参照 ---
+    const picker = document.getElementById('picker');
+    const bar = document.getElementById('bar');
+    const q = document.getElementById('q');
+    const expandAllBtn = document.getElementById('expandAll');
+    const collapseAllBtn = document.getElementById('collapseAll');
+    const resetViewBtn = document.getElementById('resetView');
+    const container = document.getElementById('tree');
+    const stats = document.getElementById('stats');
+
+    // --- ツリーモデル判定 ---
+    function isFolderNode(node) {
+      if (!node || typeof node !== 'object') return false;
+      return Object.keys(node).some(k => k !== '__file' && k !== '__full');
+    }
+    function isFileNode(node) {
+      return node && node.__file === true;
+    }
+
+    // --- file:// URL 化（UNC/絶対/相対） ---
+    function toFileURL(full) {
+      if (/^\\\\/.test(full)) {
+        // UNC -> file:////server/share/path
+        return 'file:////' + full.replace(/^\\\\/, '').replace(/\\/g, '/');
+      }
+      if (/^[a-zA-Z]:[\\/]/.test(full)) {
+        // 絶対 C:\ -> file:///C:/...
+        return 'file:///' + full.replace(/\\/g, '/');
+      }
+      // 相対はそのまま
+      return full;
+    }
+
+    // --- ツリー構築 ---
+    function buildTree(lines) {
+      const root = {};
+      let count = 0;
+      for (const raw of lines) {
+        const cleaned = raw.replace(/^\uFEFF/, '').trim();
+        if (!cleaned) continue;
+        const norm = cleaned.replace(/^\.?[\\/]/, '');
+        const parts = norm.split(/[\\/]/).filter(Boolean);
+        let cur = root;
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isLast = i === parts.length - 1;
+          cur[part] = cur[part] || {};
+          cur = cur[part];
+          if (isLast) {
+            cur.__file = true;
+            cur.__full = cleaned; // 元の文字列（相対/絶対/UNC）
+            count++;
+          }
+        }
+      }
+      return { root, count };
+    }
+
+    // --- DOMパーツ ---
+    function createFileLi(name, node) {
+      const li = document.createElement('li');
+      li.className = 'file';
+      li.setAttribute('role', 'treeitem');
+      li.setAttribute('aria-selected', 'false');
+
+      const a = document.createElement('a');
+      a.textContent = name;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.href = encodeURI(toFileURL(node.__full || name));
+      li.appendChild(a);
+      return li;
+    }
+
+    function createFolderLi(name, node) {
+      const li = document.createElement('li');
+      li.className = 'folder';
+      li.setAttribute('role', 'treeitem');
+      li.setAttribute('aria-expanded', 'false');
+      li.textContent = name;
+
+      const child = document.createElement('ul');
+      child.className = 'nested';
+      child.setAttribute('role', 'group');
+      li.appendChild(child);
+
+      let built = false;
+      li.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (!built) {
+          buildChildren(child, node);
+          built = true;
+        }
+        const open = !li.classList.contains('open');
+        li.classList.toggle('open', open);
+        child.classList.toggle('active', open);
+        li.setAttribute('aria-expanded', String(open));
+      });
+
+      return li;
+    }
+
+    function buildChildren(ul, node) {
+      const keys = Object.keys(node)
+        .filter(k => k !== '__file' && k !== '__full')
+        .sort((a, b) => {
+          const aIsFolder = isFolderNode(node[a]) && !isFileNode(node[a]);
+          const bIsFolder = isFolderNode(node[b]) && !isFileNode(node[b]);
+          if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+          return a.localeCompare(b, 'ja');
+        });
+
+      for (const name of keys) {
+        const childNode = node[name];
+        const hasFolderChildren = isFolderNode(childNode) && !isFileNode(childNode);
+        if (hasFolderChildren) {
+          ul.appendChild(createFolderLi(name, childNode));
+        } else {
+          ul.appendChild(createFileLi(name, childNode));
+        }
+      }
+    }
+
+    function renderRoot(treeObj) {
+      container.innerHTML = '';
+      const ul = document.createElement('ul');
+      ul.setAttribute('role', 'tree');
+      buildChildren(ul, treeObj);
+      container.appendChild(ul);
+    }
+
+    // --- 展開/折りたたみ ---
+    function expandCollapseAll(expand = true, depth = Infinity) {
+      const walk = (el, d) => {
+        if (!el || d > depth) return;
+        el.querySelectorAll(':scope > li.folder').forEach(li => {
+          const nested = li.querySelector(':scope > .nested');
+          // 子未構築なら一度クリックして構築
+          if (nested && nested.children.length === 0) {
+            li.dispatchEvent(new Event('click', { bubbles: false }));
+            if (!expand) {
+              li.classList.remove('open');
+              nested.classList.remove('active');
+              li.setAttribute('aria-expanded', 'false');
+            }
+          } else {
+            li.classList.toggle('open', expand);
+            nested && nested.classList.toggle('active', expand);
+            li.setAttribute('aria-expanded', String(expand));
+          }
+          if (nested) walk(nested, d + 1);
+        });
+      };
+      walk(container.firstElementChild, 1);
+    }
+
+    function resetInitialView() {
+      // 深さ2まで展開（第一階層＋その子）
+      expandCollapseAll(true, 2);
+      q.value = '';
+      // 全表示
+      container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
+      updateStats();
+    }
+
+    // --- 検索（部分一致・簡易） ---
+    function anyVisible(el) {
+      return [...el.children].some(ch => ch.classList && !ch.classList.contains('hidden'));
+    }
+
+    function applyFilter(term) {
+      const hasTerm = term.length > 0;
+      if (hasTerm) {
+        // 全展開で見通し良く
+        expandCollapseAll(true, Infinity);
+      } else {
+        // いったん全表示
+        container.querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
+        // 初期の深さに戻す
+        resetInitialView();
+        return;
+      }
+
+      term = term.toLowerCase();
+
+      // ファイルの表示/非表示
+      container.querySelectorAll('li.file').forEach(li => {
+        const name = li.textContent.toLowerCase();
+        li.classList.toggle('hidden', !name.includes(term));
+      });
+
+      // フォルダは、配下に可視アイテムがあるかで出し分け
+      // 深い階層から上へ順に処理
+      const folders = Array.from(container.querySelectorAll('li.folder')).reverse();
+      folders.forEach(f => {
+        const nested = f.querySelector(':scope > .nested');
+        if (!nested) return;
+        const visible = anyVisible(nested);
+        f.classList.toggle('hidden', !visible);
+      });
+
+      updateStats();
+    }
+
+    // --- 件数表示 ---
+    function updateStats() {
+      const total = container.querySelectorAll('li.file').length;
+      const visible = container.querySelectorAll('li.file:not(.hidden)').length;
+      stats.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} files`;
+    }
+
+    // --- イベント ---
+    picker.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      const lines = text.split(/\r\n|\r|\n/).map(s => s.trim()).filter(Boolean);
+      const { root, count } = buildTree(lines);
+      renderRoot(root);
+      bar.classList.remove('hidden');
+      resetInitialView();
+      stats.textContent = `${count.toLocaleString()} files`;
+    });
+
+    expandAllBtn.onclick = () => expandCollapseAll(true, Infinity);
+    collapseAllBtn.onclick = () => expandCollapseAll(false, Infinity);
+    resetViewBtn.onclick = () => resetInitialView();
+
+    q.addEventListener('input', () => applyFilter(q.value.trim()));
+  </script>
+
+</body>
+</html>
