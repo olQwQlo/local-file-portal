@@ -1,0 +1,8 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Generated lists / temp
+filelist.txt
+~$*.xlsx
