@@ -65,7 +65,7 @@ try {
 # --- 長いパス対策関数 ---
 function Add-LongPathPrefix([string]$Path) {
   if ($Path -and $Path -match '^[a-zA-Z]:\\' -and $EnableLongPath) {
-    return '\\?\' + $Path
+    return '\\\\?\\' + $Path
   }
   return $Path
 }
